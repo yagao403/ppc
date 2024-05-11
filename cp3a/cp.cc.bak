@@ -1,0 +1,103 @@
+/*
+This is the function you need to implement. Quick reference:
+- input rows: 0 <= y < ny
+- input columns: 0 <= x < nx
+- element at row y and column x is stored in data[x + y*nx]
+- correlation between rows i and row j has to be stored in result[i + j*ny]
+- only parts with 0 <= j <= i < ny need to be filled
+*/
+
+#include <algorithm>
+#include <cmath>
+#include <numeric>
+#include <vector>
+
+using namespace std;
+
+constexpr int vector_size = 4;
+
+typedef double double4_t
+    __attribute__((vector_size(vector_size * sizeof(double))));
+
+static inline double sum4_t(double4_t x) { return x[0] + x[1] + x[2] + x[3]; }
+
+constexpr double4_t d40{0.0, 0.0, 0.0, 0.0};
+
+void correlate(int ny, int nx, const float *data, float *result) {
+
+  // ceiling of number of vectors per row/col
+  int n_vec_per_row = 1 + ((nx - 1) / vector_size);
+  int n_vec_per_col = 1 + ((ny - 1) / vector_size);
+
+  // number of vectors in the matrix
+  int n_vec = n_vec_per_col * n_vec_per_row;
+  // define the matrix
+  vector<double4_t> matrix(n_vec * 8, d40);
+  vector<double> mean(ny, 0.0);
+  vector<double> std(ny, 0.0);
+
+#pragma omp parallel for schedule(static, 1)
+  for (int row = 0; row < ny; ++row) {
+    for (int col = 0; col < nx; ++col) {
+      mean[row] += data[row * nx + col];
+    }
+    mean[row] /= nx;
+  }
+
+  double square_sum;
+#pragma omp parallel for schedule(static, 1)
+  for (int row = 0; row < ny; ++row) {
+    square_sum = 0.0;
+    for (int col = 0; col < nx; ++col) {
+      square_sum += pow(data[row * nx + col] - mean[row], 2);
+    }
+    std[row] = sqrt(square_sum);
+  }
+
+#pragma omp parallel for schedule(static, 1)
+  for (int row = 0; row < ny; row++) {
+    for (int vec_row = 0; vec_row < n_vec_per_row; vec_row++) {
+      for (int vec_col = 0; vec_col < n_vec_per_col; vec_col++) {
+        int j = vec_row * vector_size + vec_col;
+        matrix[vector_size * row + vec_row][vec_col] =
+            j < nx ? (data[row * nx + j] - mean[row]) / std[row] : 0.0;
+      }
+    }
+  }
+
+#pragma omp parallel
+#pragma omp for schedule(dynamic, 1) nowait
+  for (int row_1 = 0; row_1 < ny; row_1++) {
+    for (int row_2 = row_1; row_2 < ny; row_2++) {
+      vector<vector<double4_t>> tmp(vector_size,
+                                    vector<double4_t>(vector_size));
+      vector<double4_t> x(vector_size, d40);
+      vector<double4_t> y(vector_size, d40);
+    //   fill(tmp.begin(), tmp.end(), d40);
+
+      asm("# loop starts here");
+      // calcualte vector-wise multiplication
+      for (int row = 0; row < n_vec_per_row; ++row) {
+        for (int kd = 0; kd < n_vec_per_col; ++kd) {
+          x[kd] = matrix[n_vec_per_row * (row_1 * n_vec_per_col + kd) + row];
+          y[kd] = matrix[n_vec_per_row * (row_2 * n_vec_per_col + kd) + row];
+        }
+        for (int id = 0; id < n_vec_per_col; ++id) {
+          for (int jd = 0; jd < n_vec_per_col; ++jd) {
+            tmp[id][jd] += x[id] * y[jd];
+          }
+        }
+      }
+      for (int row = 0; row < vector_size; ++row) {
+        for (int col = 0; col < vector_size; ++col) {
+          int i = n_vec_per_row * vector_size + row;
+          int j = n_vec_per_col * vector_size + col;
+          if (i < j && i < ny && j < ny) {
+            result[j + i * ny] = static_cast<float>(sum4_t(tmp[row][col]));
+          }
+        }
+      }
+      asm("# loop ends here");
+    }
+  }
+}
