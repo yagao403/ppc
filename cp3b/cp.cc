@@ -45,10 +45,9 @@ void correlate(int ny, int nx, const float *data, float *result) {
     mean[row] /= nx;
   }
 
-  double square_sum;
 #pragma omp parallel for schedule(static, 1)
   for (int row = 0; row < ny; row++) {
-    square_sum = 0.0f;
+    double square_sum = 0.0f;
     for (int col = 0; col < nx; col++) {
       square_sum += pow(data[row * nx + col] - mean[row], 2);
     }
@@ -70,7 +69,7 @@ void correlate(int ny, int nx, const float *data, float *result) {
 
   // calculate matrix multiplication X*XT
 #pragma omp parallel
-#pragma omp for schedule(dynamic, 1)
+#pragma omp for schedule(dynamic, 1) nowait
   for (int row_vec = 0; row_vec < n_vec_per_col; row_vec++) {
     for (int col_vec = row_vec; col_vec < n_vec_per_col; col_vec++) {
       float8_t square_matrix[vector_size][vector_size];
