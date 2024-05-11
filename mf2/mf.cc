@@ -6,7 +6,7 @@ using namespace std;
 void mf(int ny, int nx, int hy, int hx, const float *in, float *out)
 {
 
-#pragma omp parallel for
+#pragma omp parallel for schedule(static, 1)
   // sliding window (moving down first then moving towards right)
   for (int y = 0; y < ny; y++)
   {
@@ -25,7 +25,6 @@ void mf(int ny, int nx, int hy, int hx, const float *in, float *out)
       // fill in window
       int idx = 0;
 
-#pragma omp parallel for
       for (int j = ymin; j < ymax; ++j)
       {
         for (int i = xmin; i < xmax; ++i)
